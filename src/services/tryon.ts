@@ -29,6 +29,17 @@ export interface TryOnResult {
   error?: string;
 }
 
+export interface OutfitItem {
+  name: string;
+  imageUrl: string; // product thumbnail or full image URL
+  productUrl: string;
+  price?: number;
+  currency?: string;
+  brand?: string;
+  retailer?: string;
+  category?: string;
+}
+
 async function imageToBase64(url: string): Promise<{ mimeType: string; data: string }> {
   try {
     // Handle data URLs (base64 encoded images) directly
@@ -342,4 +353,63 @@ export async function batchGenerateTryOns(
     requests.map((request) => generateVirtualTryOn(request))
   );
   return results;
+}
+
+// Generate layered outfit by sequentially applying items to a base user photo
+export async function generateOutfitTryOn(
+  userPhotoUrl: string,
+  items: OutfitItem[]
+): Promise<{ success: boolean; imageUrl?: string; error?: string }> {
+  try {
+    console.log('[TRYON] ===== Starting outfit generation =====');
+    console.log('[TRYON] Total items to apply:', items.length);
+    items.forEach((it, idx) => console.log(`[TRYON] Item ${idx+1}/${items.length}:`, { 
+      name: it.name, 
+      category: it.category,
+      brand: it.brand || it.retailer, 
+      hasImage: !!it.imageUrl,
+      imagePreview: it.imageUrl?.slice(0,60)
+    }));
+    
+    let base = userPhotoUrl;
+    if (!items || items.length === 0) {
+      console.log('[TRYON] No items to apply, returning original user photo');
+      return { success: true, imageUrl: base };
+    }
+
+    // Apply each item sequentially, layering them
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      console.log(`[TRYON] Applying item ${i+1}/${items.length}: ${item.name}`);
+      console.log(`[TRYON] Using base image:`, base.slice(0, 60));
+      
+      const res = await generateVirtualTryOn({
+        userPhotoUrl: base,
+        productImageUrl: item.imageUrl,
+        productName: item.name,
+        productDescription: `${item.brand || ''} ${item.category || ''}`.trim() || undefined,
+      });
+      
+      if (!res.success || !res.imageUrl) {
+        console.error(`[TRYON] Failed at item ${i+1}/${items.length}:`, res.error);
+        // Don't fail completely - return what we have so far if possible
+        if (i > 0 && base !== userPhotoUrl) {
+          console.log('[TRYON] Returning partial result from previous layers');
+          return { success: true, imageUrl: base };
+        }
+        return { success: false, error: res.error || `Failed to apply ${item.name}` };
+      }
+      
+      console.log(`[TRYON] Successfully applied item ${i+1}/${items.length}`);
+      console.log(`[TRYON] Result image preview:`, res.imageUrl.slice(0, 60));
+      base = res.imageUrl; // Use this result as the base for the next item
+    }
+
+    console.log('[TRYON] ===== Outfit generation complete =====');
+    console.log('[TRYON] Final result image:', base.slice(0, 60));
+    return { success: true, imageUrl: base };
+  } catch (err) {
+    console.error('[TRYON] Outfit generation error:', err);
+    return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
+  }
 }
