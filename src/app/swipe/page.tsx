@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { SwipeCard } from '@/components/swipe/SwipeCard';
 import { Button } from '@/components/ui/button';
@@ -17,7 +17,7 @@ interface TryOnImage {
   loading: boolean;
 }
 
-export default function SwipePage() {
+function SwipePageContent() {
   const searchParams = useSearchParams();
   const [products, setProducts] = useState<Product[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -545,5 +545,23 @@ export default function SwipePage() {
     </div>
     <Navigation />
     </>
+  );
+}
+
+export default function SwipePage() {
+  return (
+    <Suspense fallback={
+      <>
+        <div className="flex h-screen items-center justify-center bg-gradient-to-br from-white via-[#8B5CF6]/5 to-white pb-16 lg:pb-0 lg:pl-56 relative overflow-hidden">
+          <div className="text-center relative z-10">
+            <Loader2 className="h-8 w-8 animate-spin text-[#8B5CF6] mx-auto mb-4" />
+            <p className="text-lg text-gray-700 font-light">Loading...</p>
+          </div>
+        </div>
+        <Navigation />
+      </>
+    }>
+      <SwipePageContent />
+    </Suspense>
   );
 }
