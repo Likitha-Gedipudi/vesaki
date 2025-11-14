@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { db } from '@/lib/db';
 import { users, photos, products, tryOnCache } from '@/lib/db/schema';
-import { eq, and, gte, inArray } from 'drizzle-orm';
+import { eq, and, gte, inArray, sql } from 'drizzle-orm';
 import { generateVirtualTryOn } from '@/services/tryon';
 
 export async function POST(req: NextRequest) {
@@ -72,17 +72,37 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Helper to compute a simple, stable params hash for this generation
+    const paramsKeyObj = {
+      promptVersion: 1,
+      productName: product.name,
+      productDescription: product.description || null,
+    };
+    const paramsHash = Buffer.from(JSON.stringify(paramsKeyObj)).toString('base64').slice(0, 255);
+    const modelVersion = 'gemini-2.5-flash-image';
+
     // Check cache first
     const cached = await db.query.tryOnCache.findFirst({
       where: and(
         eq(tryOnCache.userId, user.id),
         eq(tryOnCache.photoId, userPhoto.id),
         eq(tryOnCache.productId, productId),
+        eq(tryOnCache.modelVersion, modelVersion),
+        eq(tryOnCache.paramsHash, paramsHash),
         gte(tryOnCache.expiresAt, new Date())
       ),
     });
 
     if (cached) {
+      // Update basic usage metrics asynchronously (no need to await)
+      db.update(tryOnCache)
+        .set({
+          lastAccessedAt: new Date(),
+          usageCount: cached.usageCount + 1,
+        })
+        .where(eq(tryOnCache.id, cached.id))
+        .catch((err) => console.error('Failed to update try-on cache usage metrics', err));
+
       return NextResponse.json({
         success: true,
         imageUrl: cached.generatedImageUrl,
@@ -103,6 +123,7 @@ export async function POST(req: NextRequest) {
         productImageUrl: product.imageUrl,
         productName: product.name,
         productDescription: product.description || undefined,
+        promptVersion: 1,
       });
 
       if (!result.success || !result.imageUrl) {
@@ -150,39 +171,37 @@ export async function POST(req: NextRequest) {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7);
 
-    // Insert into cache or update if exists (upsert)
-    // Check if cache entry exists
-    const existingCache = await db.query.tryOnCache.findFirst({
-      where: and(
-        eq(tryOnCache.userId, user.id),
-        eq(tryOnCache.photoId, userPhoto.id),
-        eq(tryOnCache.productId, productId)
-      ),
-    });
-
-    if (existingCache) {
-      // Update existing cache entry
-      await db.update(tryOnCache)
-        .set({
-          generatedImageUrl: result.imageUrl!,
-          expiresAt,
-          createdAt: new Date(),
-        })
-        .where(eq(tryOnCache.id, existingCache.id));
-    } else {
-      // Insert new cache entry
-      try {
-        await db.insert(tryOnCache).values({
+    try {
+      await db
+        .insert(tryOnCache)
+        .values({
           userId: user.id,
           photoId: userPhoto.id,
           productId: productId,
           generatedImageUrl: result.imageUrl!,
+          modelVersion,
+          paramsHash,
           expiresAt,
+        })
+        .onConflictDoUpdate({
+          target: [
+            tryOnCache.userId,
+            tryOnCache.photoId,
+            tryOnCache.productId,
+            tryOnCache.externalProductKey,
+            tryOnCache.modelVersion,
+            tryOnCache.paramsHash,
+          ],
+          set: {
+            generatedImageUrl: result.imageUrl!,
+            expiresAt,
+            createdAt: new Date(),
+            lastAccessedAt: new Date(),
+            usageCount: sql`${tryOnCache.usageCount} + 1`,
+          },
         });
-      } catch (error) {
-        // Handle race condition - another request might have inserted it
-        console.error('Error inserting into cache:', error);
-      }
+    } catch (error) {
+      console.error('Error upserting try-on cache entry:', error);
     }
 
     return NextResponse.json({
@@ -244,12 +263,15 @@ export async function PUT(req: NextRequest) {
     // Get products - fetch all at once
     const allProducts = await db.select().from(products).where(inArray(products.id, productIds));
 
-    // Check cache for all products at once
+    // Check cache for all products at once (using current model)
+    const modelVersion = 'gemini-2.5-flash-image';
+
     const cachedResults = await db.select().from(tryOnCache).where(
       and(
         eq(tryOnCache.userId, user.id),
         eq(tryOnCache.photoId, userPhoto.id),
         inArray(tryOnCache.productId, productIds),
+        eq(tryOnCache.modelVersion, modelVersion),
         gte(tryOnCache.expiresAt, new Date())
       )
     );
@@ -269,16 +291,26 @@ export async function PUT(req: NextRequest) {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7);
 
+    const modelVersion = 'gemini-2.5-flash-image';
+
     for (const product of productsToGenerate) {
       try {
         console.log(`Batch generating try-on for product ${product.name} (${product.id})`);
         console.log(`  Product image: ${product.imageUrl}`);
         
+        const paramsKeyObj = {
+          promptVersion: 1,
+          productName: product.name,
+          productDescription: product.description || null,
+        };
+        const paramsHash = Buffer.from(JSON.stringify(paramsKeyObj)).toString('base64').slice(0, 255);
+
         const result = await generateVirtualTryOn({
           userPhotoUrl: userPhoto.url,
           productImageUrl: product.imageUrl,
           productName: product.name,
           productDescription: product.description || undefined,
+          promptVersion: 1,
         });
 
         if (result.success && result.imageUrl) {
@@ -286,36 +318,37 @@ export async function PUT(req: NextRequest) {
           console.log(`✅ Successfully generated try-on for product ${product.id}`);
 
           // Save to cache (upsert)
-          const existingCache = await db.query.tryOnCache.findFirst({
-            where: and(
-              eq(tryOnCache.userId, user.id),
-              eq(tryOnCache.photoId, userPhoto.id),
-              eq(tryOnCache.productId, product.id)
-            ),
-          });
-
-          if (existingCache) {
-            // Update existing cache entry
-            await db.update(tryOnCache)
-              .set({
-                generatedImageUrl: result.imageUrl,
-                expiresAt,
-                createdAt: new Date(),
-              })
-              .where(eq(tryOnCache.id, existingCache.id));
-          } else {
-            // Insert new cache entry
-            try {
-              await db.insert(tryOnCache).values({
+          try {
+            await db
+              .insert(tryOnCache)
+              .values({
                 userId: user.id,
                 photoId: userPhoto.id,
                 productId: product.id,
                 generatedImageUrl: result.imageUrl,
+                modelVersion,
+                paramsHash,
                 expiresAt,
+              })
+              .onConflictDoUpdate({
+                target: [
+                  tryOnCache.userId,
+                  tryOnCache.photoId,
+                  tryOnCache.productId,
+                  tryOnCache.externalProductKey,
+                  tryOnCache.modelVersion,
+                  tryOnCache.paramsHash,
+                ],
+                set: {
+                  generatedImageUrl: result.imageUrl,
+                  expiresAt,
+                  createdAt: new Date(),
+                  lastAccessedAt: new Date(),
+                  usageCount: sql`${tryOnCache.usageCount} + 1`,
+                },
               });
-            } catch (error) {
-              console.error(`Error inserting cache for product ${product.id}:`, error);
-            }
+          } catch (error) {
+            console.error(`Error upserting cache for product ${product.id}:`, error);
           }
         } else {
           const errorMsg = result.error || 'Unknown error';

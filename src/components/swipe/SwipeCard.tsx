@@ -50,7 +50,7 @@ export function SwipeCard({ product, tryOnImageUrl, onSwipe, onTap, style, isLoa
       dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
       onDragEnd={handleDragEnd}
       whileTap={{ scale: 1.05 }}
-      className={`w-full max-h-[600px] h-[85vh] lg:h-[75vh] ${isLoading ? 'cursor-not-allowed' : 'cursor-grab active:cursor-grabbing'}`}
+      className={`w-full h-[55vh] max-h-[520px] sm:h-[60vh] sm:max-h-[560px] lg:h-[75vh] ${isLoading ? 'cursor-not-allowed' : 'cursor-grab active:cursor-grabbing'}`}
     >
       <div
         onClick={onTap}

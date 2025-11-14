@@ -21,6 +21,8 @@ export interface TryOnRequest {
   productImageUrl: string;
   productName: string;
   productDescription?: string;
+  // Optional flags for future variations (different prompt styles, etc.)
+  promptVersion?: number;
 }
 
 export interface TryOnResult {
@@ -254,6 +256,8 @@ export async function generateVirtualTryOn(
       throw new Error('User photo data is empty');
     }
     
+    const promptVersion = request.promptVersion ?? 1;
+
     // Build prompt following official Google documentation format
     // First image: Product/clothing item
     // Second image: User/model photo

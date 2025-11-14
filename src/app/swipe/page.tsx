@@ -384,9 +384,9 @@ export default function SwipePage() {
 
   return (
     <>
-    <div className="flex flex-col h-screen bg-gradient-to-br from-white via-[#8B5CF6]/5 to-white pb-16 lg:pb-0 lg:pl-56 relative">
+    <div className="flex flex-col min-h-screen bg-white lg:bg-gradient-to-br lg:from-white lg:via-[#8B5CF6]/5 lg:to-white pb-24 lg:pb-0 lg:pl-56 relative">
       {/* Noise Background - Fixed positioning */}
-      <div className="fixed inset-0 pointer-events-none z-0 lg:left-56">
+      <div className="hidden lg:block fixed inset-0 pointer-events-none z-0 lg:left-56">
         <svg className="w-full h-full opacity-65" xmlns="http://www.w3.org/2000/svg">
           <filter id="noise-swipe">
             <feTurbulence type="fractalNoise" baseFrequency="0.80" numOctaves="4" stitchTiles="stitch"/>
@@ -397,8 +397,8 @@ export default function SwipePage() {
       </div>
       
       {/* Floating Gradient Orbs - Fixed positioning */}
-      <div className="fixed top-20 right-10 w-72 h-72 bg-[#8B5CF6]/10 rounded-full blur-3xl animate-pulse pointer-events-none z-0 lg:left-[calc(224px+10rem)]"></div>
-      <div className="fixed bottom-20 left-10 w-96 h-96 bg-purple-400/10 rounded-full blur-3xl animate-pulse pointer-events-none z-0 lg:left-[calc(224px+2.5rem)]" style={{animationDelay: '1s'}}></div>
+      <div className="hidden lg:block fixed top-20 right-10 w-72 h-72 bg-[#8B5CF6]/10 rounded-full blur-3xl animate-pulse pointer-events-none z-0 lg:left-[calc(224px+10rem)]"></div>
+      <div className="hidden lg:block fixed bottom-20 left-10 w-96 h-96 bg-purple-400/10 rounded-full blur-3xl animate-pulse pointer-events-none z-0 lg:left-[calc(224px+2.5rem)]" style={{animationDelay: '1s'}}></div>
       
       {/* Desktop Header */}
       <div className="hidden lg:flex items-center justify-between h-14 px-6 border-b border-gray-200 bg-white relative z-10 shrink-0">
@@ -478,7 +478,7 @@ export default function SwipePage() {
         </form>
       </div>
 
-      <div className="flex-1 relative flex items-center justify-center px-4 py-6 w-full z-10 min-h-0">
+      <div className="flex-1 relative flex items-start justify-center px-4 py-4 w-full z-10 min-h-0 overflow-y-auto lg:overflow-visible">
         <AnimatePresence>
           {currentProduct && (
             <motion.div
@@ -525,7 +525,7 @@ export default function SwipePage() {
         )}
       </div>
 
-      <div className="flex items-center justify-center gap-6 pb-6 lg:pb-8 px-4 relative z-10">
+      <div className="flex items-center justify-center gap-6 mt-4 mb-4 pb-8 lg:pb-10 px-4 relative z-10">
         <button
           onClick={() => handleManualSwipe('left')}
           disabled={!currentProduct || isGeneratingTryOn}

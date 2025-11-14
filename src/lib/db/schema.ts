@@ -106,16 +106,35 @@ export const messages = pgTable('messages', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+// NOTE: tryOnCache is used as a write-through cache for virtual try-ons.
+// Eviction policy is handled at the application level (see scripts/ or cron jobs).
 export const tryOnCache = pgTable('try_on_cache', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   photoId: uuid('photo_id').notNull().references(() => photos.id, { onDelete: 'cascade' }),
-  productId: uuid('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+  // For in-database products we use productId; for external/ephemeral products we rely on externalProductKey
+  productId: uuid('product_id').references(() => products.id, { onDelete: 'cascade' }),
+  // Stable key for non-DB products (e.g. retailer + normalized product URL)
+  externalProductKey: varchar('external_product_key', { length: 512 }),
+  // Stored URL or data URL for the generated image
   generatedImageUrl: text('generated_image_url').notNull(),
+  // Model + prompt version used for generation
+  modelVersion: varchar('model_version', { length: 128 }).default('gemini-2.5-flash-image').notNull(),
+  paramsHash: varchar('params_hash', { length: 255 }).default('v1').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+  lastAccessedAt: timestamp('last_accessed_at').defaultNow().notNull(),
+  usageCount: integer('usage_count').default(0).notNull(),
   expiresAt: timestamp('expires_at').notNull(),
 }, (table) => ({
-  uniqueUserPhotoProduct: unique().on(table.userId, table.photoId, table.productId),
+  // Main uniqueness constraint for cache lookups; NULLs are allowed for either productId or externalProductKey
+  uniqueUserPhotoProduct: unique().on(
+    table.userId,
+    table.photoId,
+    table.productId,
+    table.externalProductKey,
+    table.modelVersion,
+    table.paramsHash,
+  ),
 }));
 
 export const userStyleProfiles = pgTable('user_style_profiles', {
